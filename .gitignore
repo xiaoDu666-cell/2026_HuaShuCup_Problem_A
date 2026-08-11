@@ -1,0 +1,44 @@
+# Python 相关
+__pycache__/
+*.py[cod]
+*.so
+.Python
+
+# 数据文件（文件较大，避免提交到 GitHub）
+*.csv
+*.xlsx
+*.xls
+*.mat
+*.npy
+
+# 结果文件（临时输出不提交）
+results/figures/
+results/outputs/
+*.log
+
+# IDE 和系统文件
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# 论文编译中间文件
+*.aux
+*.log
+*.out
+*.synctex.gz
+
+# 数据文件（如果数据太大，不建议提交到 GitHub）
+*.csv
+*.xlsx
+*.xls
+*.mat
+
+# 结果文件（临时输出不提交）
+results/figures/*.png
+results/outputs/*.txt
+
+# 论文编译中间文件（如果用 LaTeX）
+*.aux
+*.log
+*.pdf  # 只提交最终版，不提交编译中间文件
