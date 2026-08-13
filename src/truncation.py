@@ -1,63 +1,107 @@
-#边界截断规则的实现（解析分割方法）
 # truncation.py
-# Functions to split/truncate cylinders by a cubic box with mapping rule described in the problem.
-
+# Boundary truncation with periodic wrapping:
+# Split cylinder axis by intersections with box faces (including periodic images),
+# then map each resulting piece back into the primary box [-L/2, L/2]^3 by
+# translating by integer multiples of L so that the piece's midpoint lies in the box.
 from __future__ import annotations
 import numpy as np
 from typing import List
 from .geometry import Cylinder
 
-def _plane_ts_for_axis(A_coord, B_coord, plane_pos):
-    """Return t where segment coordinate equals plane_pos: t = (plane - A) / (B - A)
-    Only returns t if denominator != 0.
-    """
-    denom = B_coord - A_coord
-    if abs(denom) < 1e-15:
-        return []
-    t = (plane_pos - A_coord) / denom
-    return [t]
+def _map_point_into_box(pt: np.ndarray, L: float) -> np.ndarray:
+    """Map a point into the primary box [-L/2, L/2]^3 using periodic wrapping."""
+    half = L / 2.0
+    # map each coordinate to [-half, half)
+    # use modulo that handles negative values correctly
+    mapped = ((pt + half) % L) - half
+    # Handle the edge case when mapped == -half and original > half-eps, clamp to half
+    # but for our purposes the above is sufficient.
+    return mapped
 
 def split_cylinder_by_box(cyl: Cylinder, L: float) -> List[Cylinder]:
-    """Split a cylinder axis into segments at box faces x=+-L/2,y=...,z=..., then map each segment back into box
-    according to the rule: if a segment lies outside in a given direction, translate it by +/-L so it sits inside.
+    """
+    Split a cylinder axis into segments at box faces (including faces of periodic images),
+    then map each resulting segment back into the primary box by translating by integer
+    multiples of L so the segment midpoint falls inside the box.
+
+    This implements the periodic boundary 'edge truncation' rule: parts of the
+    cylinder that lie outside the box are shifted back from the exceeded side
+    into the box by +/- L (or multiples thereof).
+
     Returns a list of Cylinder segments (each with same radius and same original id).
     """
-    A = cyl.p0
-    B = cyl.p1
-    planes = []
+    A = np.asarray(cyl.p0, dtype=float)
+    B = np.asarray(cyl.p1, dtype=float)
+    d = B - A
     half = L / 2.0
-    # Generate candidate t values for intersections with the 6 faces
+    SMALL = 1e-15
+
+    # Collect parameter values t where the axis intersects box faces (including periodic images)
     ts = [0.0, 1.0]
+
+    # For each axis, find face positions that lie between the min and max coordinate of the segment
     for dim in range(3):
         a_coord = A[dim]
         b_coord = B[dim]
-        for face in (-half, half):
-            if abs(b_coord - a_coord) < 1e-15:
+        min_coord = min(a_coord, b_coord)
+        max_coord = max(a_coord, b_coord)
+        # Faces in the infinite grid occur at positions: -half + n*L and +half + n*L (redundant)
+        # We'll generate faces at -half + n*L and +half + n*L for n in a range covering [min_coord, max_coord]
+        # Compute n range roughly:
+        # find n such that face_position in [min_coord, max_coord]
+        # For -half + n*L:
+        if abs(d[dim]) < SMALL:
+            # axis parallel to this plane direction: no t from this axis (unless the entire segment is outside,
+            # which will be handled by midpoint mapping below)
+            continue
+
+        # determine reasonable n range
+        # solve -half + n*L in [min_coord, max_coord] -> n in [(min_coord + half)/L, (max_coord + half)/L]
+        n_min = int(np.floor((min_coord + half) / L)) - 1
+        n_max = int(np.ceil((max_coord + half) / L)) + 1
+
+        # also include +half + n*L faces (they are offset by L/2 but will be covered by above set in a shifted n).
+        # We'll explicitly include both sets to be robust.
+        face_positions = []
+        for n in range(n_min, n_max + 1):
+            face_positions.append(-half + n * L)
+            face_positions.append(half + n * L)
+
+        # compute t for each face
+        for face in face_positions:
+            denom = (B[dim] - A[dim])
+            if abs(denom) < SMALL:
                 continue
-            t = (face - a_coord) / (b_coord - a_coord)
+            t = (face - A[dim]) / denom
             if 0.0 < t < 1.0:
-                ts.append(t)
+                ts.append(float(t))
+
+    # unique & sort
     ts = sorted(set(ts))
-    segments = []
+
+    segments: List[Cylinder] = []
     for i in range(len(ts) - 1):
         t0 = ts[i]
         t1 = ts[i + 1]
-        p0 = A + (B - A) * t0
-        p1 = A + (B - A) * t1
+        # skip degenerate intervals
+        if t1 - t0 <= 1e-15:
+            continue
+        p0 = A + d * t0
+        p1 = A + d * t1
         midpoint = 0.5 * (p0 + p1)
-        # compute shift per axis to bring midpoint into [-half,half]
-        shift = np.zeros(3)
-        for d in range(3):
-            if midpoint[d] > half:
-                shift[d] = -L
-            elif midpoint[d] < -half:
-                shift[d] = L
-            else:
-                shift[d] = 0.0
+
+        # Map midpoint into primary box, compute shift vector to move entire segment so that midpoint is inside box
+        mapped_mid = _map_point_into_box(midpoint, L)
+        shift = mapped_mid - midpoint
+
         p0_shift = p0 + shift
         p1_shift = p1 + shift
-        # clamp tiny numerical out-of-bound values
+
+        # Numeric clamp to box boundaries to avoid tiny out-of-bound values
         p0_shift = np.minimum(np.maximum(p0_shift, -half), half)
         p1_shift = np.minimum(np.maximum(p1_shift, -half), half)
+
+        # Append segment as Cylinder within primary box
         segments.append(Cylinder(p0_shift, p1_shift, cyl.r, id=cyl.id))
+
     return segments
