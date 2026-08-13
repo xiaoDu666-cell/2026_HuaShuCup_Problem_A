@@ -40,7 +40,7 @@ REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-# Import project modules
+# Import project modules (these must exist in src/)
 try:
     from src.geometry import Cylinder
     from src.truncation import split_cylinder_by_box
@@ -170,13 +170,7 @@ def coarse_scan(fmin, fmax, n_coarse, coarse_trials, L, r, h, thresh, seed_base,
     return pd.DataFrame(results)
 
 def locate_transition_interval(df_coarse, target, margin_frac=1.0, fallback_width=0.01):
-    """From coarse results (DataFrame with f,p_hat), find a bracket [f_lo,f_hi] likely containing minimal f with p>=target.
-    Strategy:
-      - If any f has p_hat >= target: take first such f as f_hi, and f_lo previous f (or f/2 if none).
-      - Else if p_hat crosses 0.5: take crossing interval.
-      - Else take interval around largest slope (max diff).
-    margin_frac: expand bracket by this fraction on each side.
-    """
+    """From coarse results (DataFrame with f,p_hat), find a bracket [f_lo,f_hi] likely containing minimal f with p>=target."""
     df = df_coarse.sort_values('f').reset_index(drop=True)
     fs = df['f'].values
     p = df['p_hat'].values
@@ -201,13 +195,11 @@ def locate_transition_interval(df_coarse, target, margin_frac=1.0, fallback_widt
     # else pick largest slope
     diffs = np.diff(p)
     if len(diffs) == 0:
-        # fallback small interval near max p
         fi = fs[np.argmax(p)]
         return max(1e-8, fi - fallback_width/2.0), min(1.0, fi + fallback_width/2.0)
     max_idx = np.argmax(diffs)
     lo = fs[max_idx]
     hi = fs[max_idx+1]
-    # expand a bit
     width = hi - lo
     lo = max(1e-8, lo - margin_frac * width)
     hi = min(1.0, hi + margin_frac * width)
@@ -226,19 +218,16 @@ def adaptive_binary_search(target, f_lo, f_hi, L, r, h, thresh,
         print(f"Refine: testing mid={mid:.6g} trials={trials}")
         res = estimate_p(mid, trials, L, r, h, thresh, seed_base=seed_base, processes=processes)
         history.append(res)
-        # decisive low CI >= target
         if res['ci_low'] >= target:
             right = mid
             print(f"  mid accepted by ci_low >= target ({res['ci_low']:.4f} >= {target})")
             safe_save_df(pd.DataFrame(history), out_refine_csv)
             continue
-        # decisive high CI < target -> mid too small
         if res['ci_high'] < target:
             left = mid
             print(f"  mid rejected by ci_high < target ({res['ci_high']:.4f} < {target})")
             safe_save_df(pd.DataFrame(history), out_refine_csv)
             continue
-        # inconclusive -> increase trials adaptively
         while trials < max_trials:
             trials = min(trials * 2, max_trials)
             print(f"  inconclusive, increasing trials -> {trials}")
@@ -252,9 +241,7 @@ def adaptive_binary_search(target, f_lo, f_hi, L, r, h, thresh,
                 left = mid
                 print(f"  now rejected (ci_high={res['ci_high']:.4f})")
                 break
-            # else continue until trials exhausted
         else:
-            # reached max_trials and still inconclusive
             print(f"  reached max_trials={max_trials} and still inconclusive; use p_hat to decide")
             if res['p_hat'] >= target:
                 right = mid
@@ -262,7 +249,6 @@ def adaptive_binary_search(target, f_lo, f_hi, L, r, h, thresh,
                 left = mid
         safe_save_df(pd.DataFrame(history), out_refine_csv)
 
-    # final candidate f = right (smallest f considered acceptable)
     candidate = right
     return candidate, history, (left, right)
 
