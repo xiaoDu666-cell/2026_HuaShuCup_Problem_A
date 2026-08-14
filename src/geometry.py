@@ -1,7 +1,3 @@
-#圆柱、球体的几何表示，圆柱-圆柱、圆柱-平面的最短距离计算
-# geometry.py
-# Core geometry utilities: Cylinder representation and distance computations.
-
 from __future__ import annotations
 import numpy as np
 from typing import Tuple
@@ -39,12 +35,29 @@ class Cylinder:
         hi = np.maximum(self.p0, self.p1) + self.r
         return lo, hi
 
-def _seg_seg_distance(p1: np.ndarray, q1: np.ndarray, p2: np.ndarray, q2: np.ndarray) -> float:
-    """Compute minimal distance between two line segments [p1,q1] and [p2,q2].
+class Sphere:
+    """Represent a sphere by center and radius.
 
-    Returns the minimal Euclidean distance.
-    Implementation follows the classic closest points on two segments algorithm.
+    Attributes:
+        c: center (3,)
+        r: radius
+        id: optional identifier
     """
+    def __init__(self, center: np.ndarray, r: float, id: int = None):
+        self.c = np.asarray(center, dtype=float)
+        self.r = float(r)
+        self.id = id
+
+    def center(self) -> np.ndarray:
+        return self.c
+
+    def aabb(self) -> Tuple[np.ndarray, np.ndarray]:
+        lo = self.c - self.r
+        hi = self.c + self.r
+        return lo, hi
+
+def _seg_seg_distance(p1: np.ndarray, q1: np.ndarray, p2: np.ndarray, q2: np.ndarray) -> float:
+    """Compute minimal distance between two line segments [p1,q1] and [p2,q2]."""
     u = q1 - p1
     v = q2 - p2
     w0 = p1 - p2
@@ -102,18 +115,32 @@ def _seg_seg_distance(p1: np.ndarray, q1: np.ndarray, p2: np.ndarray, q2: np.nda
     return np.linalg.norm(dP)
 
 def cylinder_surface_distance(c1: Cylinder, c2: Cylinder) -> float:
-    """Return minimal surface-to-surface distance between two cylinders (>=0).
-
-    distance = max(0, axis_axis_distance - (r1 + r2))
-    """
+    """Return minimal surface-to-surface distance between two cylinders (>=0)."""
     da = _seg_seg_distance(c1.p0, c1.p1, c2.p0, c2.p1)
     surf = da - (c1.r + c2.r)
     return max(0.0, surf)
 
+def sphere_sphere_surface_distance(s1: Sphere, s2: Sphere) -> float:
+    d = np.linalg.norm(s1.c - s2.c)
+    return max(0.0, d - (s1.r + s2.r))
+
+def sphere_cylinder_surface_distance(s: Sphere, c: Cylinder) -> float:
+    # distance from sphere center to closest point on cylinder axis segment minus radii
+    p1 = c.p0
+    p2 = c.p1
+    v = p2 - p1
+    w = s.c - p1
+    vv = np.dot(v, v)
+    if vv == 0:
+        proj = p1
+    else:
+        t = np.dot(w, v) / vv
+        t_clamped = max(0.0, min(1.0, t))
+        proj = p1 + t_clamped * v
+    dcenter = np.linalg.norm(s.c - proj)
+    return max(0.0, dcenter - (s.r + c.r))
+
 def segment_plane_distance_to_x_plane(p0: np.ndarray, p1: np.ndarray, x_plane: float) -> float:
-    """Minimal distance from a finite axis segment [p0,p1] to plane x = x_plane (axis distance).
-    Returns 0.0 if segment crosses the plane; otherwise minimal distance of endpoints along x.
-    """
     x0 = p0[0]
     x1 = p1[0]
     if (x0 - x_plane) * (x1 - x_plane) <= 0:
