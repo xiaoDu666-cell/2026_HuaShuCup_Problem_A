@@ -302,6 +302,11 @@ class SphericalCap:
     
     球冠的几何含义：
         满足 (x - center) · n >= d 的点，且 |x - center| <= r
+    
+    判断规则（重要）：
+        - 完整球（无截断）：d <= -r（整个球在保留侧，没有切割）
+        - 真球冠（部分截断）：-r < d < r（切割平面穿过球体）
+        - 空球冠（完全被切除）：d >= r（整个球在被切除侧）
     """
     def __init__(self, center: np.ndarray, r: float, n: np.ndarray, d: float, id: int = None):
         self.c = np.asarray(center, dtype=float)
@@ -323,10 +328,16 @@ class SphericalCap:
         return lo, hi
     
     def is_full_sphere(self) -> bool:
-        return abs(self.d) >= self.r
+        """球冠为完整球：整个球在切割平面保留侧（d <= -r）"""
+        return self.d <= -self.r
     
     def is_empty(self) -> bool:
-        return self.d <= -self.r
+        """球冠为空：整个球在切割平面被切除侧（d >= r）"""
+        return self.d >= self.r
+    
+    def is_true_cap(self) -> bool:
+        """真正的球冠：切割平面穿过球体（-r < d < r）"""
+        return -self.r < self.d < self.r
     
     def cap_center(self) -> np.ndarray:
         """球冠底面圆的圆心（在切割平面上）"""
@@ -334,7 +345,7 @@ class SphericalCap:
     
     def cap_radius(self) -> float:
         """球冠底面圆的半径"""
-        if abs(self.d) >= self.r:
+        if not self.is_true_cap():
             return 0.0
         return np.sqrt(max(0.0, self.r**2 - self.d**2))
     

@@ -62,9 +62,11 @@ def split_cylinder_by_box(cyl: Cylinder, L: float) -> List[Cylinder]:
 
 # 在 truncation.py 中重写 split_sphere_by_box
 
+# 在 truncation.py 中替换 split_sphere_by_box
+
 def split_sphere_by_box(sph: Sphere, L: float) -> List:
     """
-    将球按照边界截断规则切割，返回盒内的所有部分。
+    将球按照边界截断规则精确切割，返回盒内的所有部分。
     与圆柱的处理逻辑一致：超出边界的部分平移到另一侧。
     """
     from .geometry import SphericalCap
@@ -91,52 +93,70 @@ def split_sphere_by_box(sph: Sphere, L: float) -> List:
         # ---- 负方向越界：mapped_c[dim] - r < -half ----
         if mapped_c[dim] - r < -half:
             # 盒内部分：平面 x_dim = -half，保留 x_dim >= -half 一侧
-            # 法向量指向正方向，d = (-half - center) · 1 = -half - center
+            # 法向量指向正方向，d = -half - mapped_c[dim]
             n = np.zeros(3)
             n[dim] = 1.0
             d = -half - mapped_c[dim]
-            parts.append(SphericalCap(mapped_c, r, n, d, id=sph.id))
+            # 只有当 d < r 时才添加（即切割平面切到球体）
+            if d < r:
+                parts.append(SphericalCap(mapped_c, r, n, d, id=sph.id))
             
             # 平移回来的部分：从另一侧（+half 附近）进入
             shifted_c = mapped_c.copy()
-            shifted_c[dim] = mapped_c[dim] + L
-            # 法向量指向负方向，d = (half - shifted_center) · (-1) = shifted_center - half
+            shifted_c[dim] = shifted_c[dim] + L
+            # 法向量指向负方向（球冠在切割平面的负方向侧）
             n2 = np.zeros(3)
             n2[dim] = -1.0
+            # d = (球心 - 切割平面位置) 在法向量上的投影
+            # 切割平面在 x = half，球心在 shifted_c[dim]，法向量指向负方向
+            # 球冠条件：球心到切割平面的距离 < r，且球冠在法向量负方向侧
             d2 = shifted_c[dim] - half
-            parts.append(SphericalCap(shifted_c, r, n2, d2, id=sph.id))
+            # 只有当 d2 < r 时才添加
+            if d2 < r:
+                parts.append(SphericalCap(shifted_c, r, n2, d2, id=sph.id))
         
         # ---- 正方向越界：mapped_c[dim] + r > half ----
         if mapped_c[dim] + r > half:
             # 盒内部分：平面 x_dim = half，保留 x_dim <= half 一侧
-            # 法向量指向负方向，d = (half - center) · (-1) = center - half
+            # 法向量指向负方向，d = mapped_c[dim] - half
             n = np.zeros(3)
             n[dim] = -1.0
             d = mapped_c[dim] - half
-            parts.append(SphericalCap(mapped_c, r, n, d, id=sph.id))
+            if d < r:
+                parts.append(SphericalCap(mapped_c, r, n, d, id=sph.id))
             
             # 平移回来的部分：从另一侧（-half 附近）进入
             shifted_c = mapped_c.copy()
-            shifted_c[dim] = mapped_c[dim] - L
-            # 法向量指向正方向，d = (-half - shifted_center) · 1 = -half - shifted_center
+            shifted_c[dim] = shifted_c[dim] - L
+            # 法向量指向正方向
             n2 = np.zeros(3)
             n2[dim] = 1.0
+            # 切割平面在 x = -half，球心在 shifted_c[dim]，法向量指向正方向
+            # 球冠在法向量正方向侧
             d2 = -half - shifted_c[dim]
-            parts.append(SphericalCap(shifted_c, r, n2, d2, id=sph.id))
+            if d2 < r:
+                parts.append(SphericalCap(shifted_c, r, n2, d2, id=sph.id))
     
     # 如果没有产生任何部分，返回映射后的完整球
     if not parts:
         return [Sphere(mapped_c, r, id=sph.id)]
     
     # 去重并过滤空球冠
+    # 去重并过滤
     valid_parts = []
     seen = set()
     for p in parts:
+        # 空球冠：完全被切除，丢弃
         if p.is_empty():
             continue
+        # 完整球：没有被截断，转为 Sphere 返回
+        if p.is_full_sphere():
+            valid_parts.append(Sphere(p.c, p.r, id=p.id))
+            continue
+        # 真球冠：部分被截断，保留
         key = (tuple(np.round(p.c, 6)), tuple(np.round(p.n, 6)), round(p.d, 6))
         if key not in seen:
             seen.add(key)
             valid_parts.append(p)
-    
+
     return valid_parts if valid_parts else [Sphere(mapped_c, r, id=sph.id)]

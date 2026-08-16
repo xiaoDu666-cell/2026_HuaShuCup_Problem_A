@@ -16,14 +16,16 @@ import pandas as pd
 
 # ------------------ 参数（在脚本顶部集中修改） ------------------
 L = 10000.0        # nm, 盒子边长
-r = 200.0          # nm, B相球半径（问题四的B相）
+r = 200.0          # nm, B相球半径
 thresh = 1.8       # nm, 表面到表面认为连通的阈值
 
 # Monte Carlo 参数
-f_grid = np.linspace(0.000, 0.015, 31)   # 体积分数网格：0 ~ 1.5%，步长0.0005
-trials_per_f = 2000                       # 每个 f 的独立试验次数（精扫）
-processes = 1                            # 并行进程数
-seed_base = 20260812                     # 随机种子基数
+#f_grid = np.linspace(0.000, 0.015, 31)   # 0 ~ 1.5%，步长0.0005（0.05%）
+f_grid = np.array([0.010, 0.015, 0.020, 0.025])  # 1.0%, 1.5%, 2.0%, 2.5%
+
+trials_per_f = 500                        # 先用500次粗扫，找到上界后再精扫
+processes = 12                            # 使用 12 核并行
+seed_base = 20260812
 
 # 输出路径
 OUT_DIR = os.path.join('results', 'outputs')
@@ -91,6 +93,11 @@ def run_single_trial(args):
     for s in spheres:
         segs = split_sphere_by_box(s, Lbox)
         segments.extend(segs)
+
+    # 打印类型统计
+    sphere_count = sum(1 for s in segments if isinstance(s, Sphere))
+    cap_count = sum(1 for s in segments if hasattr(s, 'n') and hasattr(s, 'd'))
+    #print(f"segments: Sphere={sphere_count}, SphericalCap={cap_count}")
     connected, _uf = build_connectivity(segments, Lbox, thr)
     return 1 if connected else 0
 

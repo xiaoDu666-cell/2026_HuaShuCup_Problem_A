@@ -81,6 +81,7 @@ def wilson_interval(k, n, z=1.96):
 # --------------------
 # Batch worker
 # --------------------
+# 
 def _trial_batch_worker(args: Tuple[int, int, float, float, float, float, float, float, int]) -> int:
     """
     Execute n_trials Monte-Carlo trials in one process and return number of successes.
@@ -98,6 +99,10 @@ def _trial_batch_worker(args: Tuple[int, int, float, float, float, float, float,
     _split_sph = split_sphere_by_box
     _build_conn = build_connectivity
 
+    # 根据试验次数选择精度模式
+    # 粗扫（小 trials）用 fast，精扫（大 trials）用 exact
+    mode = 'fast' if n_trials <= 500 else 'exact'
+
     for _ in range(n_trials):
         # sample particles using the same rng (will advance RNG state)
         cyls = _sample_cyl(N_A, Lloc, rAloc, hAloc, start_id=0, rng=rng)
@@ -107,10 +112,12 @@ def _trial_batch_worker(args: Tuple[int, int, float, float, float, float, float,
             particles.extend(_split_cyl(c, Lloc))
         for s in sphs:
             particles.extend(_split_sph(s, Lloc))
-        connected, _ = _build_conn(particles, Lloc, threshloc)
+        # 传入 mode 参数
+        connected, _ = _build_conn(particles, Lloc, threshloc, mode=mode)
         if connected:
             successes += 1
     return int(successes)
+
 
 # --------------------
 # Evaluate point with batching (uses provided pool if non-None)
